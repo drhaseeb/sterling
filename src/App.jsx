@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Landmark, Settings as SettingsIcon } from 'lucide-react';
+import { Loader2, Landmark, Settings as SettingsIcon, AlertTriangle, RefreshCcw } from 'lucide-react';
 import { auth, db } from './services/firebase';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { collection, query, onSnapshot } from 'firebase/firestore';
@@ -19,6 +19,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
   
   const [transactions, setTransactions] = useState([]);
   const [investments, setInvestments] = useState([]);
@@ -27,21 +28,23 @@ export default function App() {
 
   // Auth
   useEffect(() => {
-    // If auth service failed to init (missing config), stop loading immediately
     if (!auth) {
       setLoading(false);
       return;
     }
     
-    // Try to sign in. If config is invalid/placeholder, this will fail silently,
-    // user remains null, and we handle that in renderView.
+    setAuthError(null);
     signInAnonymously(auth).catch(err => {
-      console.warn("Auth Failed (Likely missing config):", err);
+      console.error("Auth Failed:", err);
+      setAuthError(err.message);
       setLoading(false);
     });
 
     return onAuthStateChanged(auth, (u) => {
-      setUser(u);
+      if (u) {
+        setUser(u);
+        setAuthError(null);
+      }
       setLoading(false);
     });
   }, []);
@@ -72,37 +75,23 @@ export default function App() {
     return () => { unsubTx(); unsubInv(); unsubBud(); unsubGoals(); };
   }, [user]);
 
-  // Render Router
+  // Render Logic
   const renderView = () => {
     if (loading) return <div className="flex h-full justify-center items-center"><Loader2 className="animate-spin text-teal-600" size={40} /></div>;
     
-    // CRITICAL FIX: If we are not in Settings tab, and we don't have a User (because of missing config),
-    // force the user to the Welcome/Settings screen.
-    if ((!auth || !user) && activeTab !== 'settings') {
-       return (
-         <div className="flex flex-col items-center justify-center h-full text-center p-10 space-y-6 animate-in fade-in">
-            <div className="bg-teal-100 p-6 rounded-full text-teal-700 mb-4">
-              <Landmark size={48} />
-            </div>
-            <div>
-              <h2 className="text-3xl font-bold text-slate-900 mb-2">Welcome to Sterling</h2>
-              <p className="text-slate-500 max-w-md mx-auto">
-                Your personal, private finance OS. To get started, please connect your database.
-              </p>
-            </div>
-            <button 
-              onClick={() => setActiveTab('settings')} 
-              className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-bold text-lg shadow-xl hover:scale-105 transition-transform flex items-center gap-2"
-            >
-              <SettingsIcon size={20} /> Configure Backend
-            </button>
-         </div>
-       );
+    // CASE 1: No Config Found (First Run)
+    if (!auth && activeTab !== 'settings') {
+       return <WelcomeScreen onConfig={() => setActiveTab('settings')} />;
     }
 
+    // CASE 2: Config Found, but Auth Failed (e.g. Anonymous Auth not enabled)
+    if (auth && !user && authError && activeTab !== 'settings') {
+        return <AuthErrorScreen error={authError} onRetry={() => window.location.reload()} onConfig={() => setActiveTab('settings')} />;
+    }
+
+    // CASE 3: App Loaded
     switch(activeTab) {
       case 'dashboard': return <Dashboard transactions={transactions} investments={investments} budgets={budgets} />;
-      // Safe navigation: We use optional chaining (?.) just in case, though the check above handles it.
       case 'wallet': return <Wallet transactions={transactions} userId={user?.uid} />;
       case 'wealth': return <Wealth investments={investments} userId={user?.uid} />;
       case 'planning': return <Planning budgets={budgets} goals={goals} transactions={transactions} userId={user?.uid} />;
@@ -114,7 +103,6 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
-      {/* Hide Sidebar if not configured to reduce clutter */}
       {(auth && user) && <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />}
       
       <main className="flex-1 overflow-hidden flex flex-col relative">
@@ -129,6 +117,46 @@ export default function App() {
 
         {(auth && user) && <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} />}
       </main>
+    </div>
+  );
+}
+
+// Sub-components for States
+function WelcomeScreen({ onConfig }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center p-10 space-y-6 animate-in fade-in">
+      <div className="bg-teal-100 p-6 rounded-full text-teal-700 mb-4"><Landmark size={48} /></div>
+      <div>
+        <h2 className="text-3xl font-bold text-slate-900 mb-2">Welcome to Sterling</h2>
+        <p className="text-slate-500 max-w-md mx-auto">Your personal finance OS. To get started, please connect your database.</p>
+      </div>
+      <button onClick={onConfig} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-bold text-lg shadow-xl hover:scale-105 transition-transform flex items-center gap-2">
+        <SettingsIcon size={20} /> Configure Backend
+      </button>
+    </div>
+  );
+}
+
+function AuthErrorScreen({ error, onRetry, onConfig }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center p-10 space-y-6 animate-in fade-in">
+      <div className="bg-rose-100 p-6 rounded-full text-rose-600 mb-4"><AlertTriangle size={48} /></div>
+      <div>
+        <h2 className="text-2xl font-bold text-slate-900 mb-2">Connection Failed</h2>
+        <p className="text-slate-500 max-w-md mx-auto mb-4">We found your config, but couldn't sign in.</p>
+        <div className="bg-rose-50 text-rose-800 p-4 rounded-xl text-xs font-mono text-left overflow-auto max-w-md mx-auto border border-rose-200">
+           {error}
+        </div>
+        <p className="text-sm text-slate-400 mt-4">Tip: Did you enable "Anonymous Auth" in Firebase Console?</p>
+      </div>
+      <div className="flex gap-3">
+        <button onClick={onRetry} className="bg-teal-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-teal-700 transition-colors flex items-center gap-2">
+          <RefreshCcw size={18} /> Retry
+        </button>
+        <button onClick={onConfig} className="text-slate-500 px-6 py-3 rounded-xl font-bold hover:bg-slate-100 transition-colors">
+          Check Config
+        </button>
+      </div>
     </div>
   );
 }
