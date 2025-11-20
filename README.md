@@ -181,7 +181,7 @@ This project is licensed under the MIT License - you are free to use, modify, an
 
 If Sterling helps you build wealth, consider buying me a coffee.
 
-<a href="https://www.google.com/search?q=https://www.buymeacoffee.com/drhaseeb">
+<a href="https://www.buymeacoffee.com/drhaseeb">
 <img src="https://img.shields.io/badge/Donate-Buy%2520Me%2520A%2520Coffee-orange.svg%3Fstyle%3Dfor-the-badge%26logo%3Dbuy-me-a-coffee" alt="Buy Me A Coffee" />
 </a>
 
