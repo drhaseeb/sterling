@@ -51,7 +51,7 @@ Sterling runs entirely in the browser. It connects directly to Firebase Firestor
 
 1. Clone & Install
 
-git clone [https://github.com/yourusername/sterling.git](https://github.com/yourusername/sterling.git)
+git clone [https://github.com/drhaseeb/sterling.git](https://github.com/drhaseeb/sterling.git)
 cd sterling
 npm install
 
@@ -67,7 +67,7 @@ The app will open. It will look empty or show connection errors until you config
 
 You can host this for free on GitHub Pages.
 
-Open package.json and add: "homepage": "https://yourusername.github.io/sterling"
+Open package.json and add: "homepage": "https://drhaseeb.github.io/sterling"
 
 Run:
 
