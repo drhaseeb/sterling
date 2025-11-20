@@ -85,7 +85,7 @@ npm start
 <ol>
 <li>Go to <a href="https://console.firebase.google.com/">Firebase Console</a> and create project <b>"Sterling"</b>.</li>
 <li><b>Build > Firestore Database</b>: Create in Production Mode.</li>
-<li><b>Build > Authentication</b>: Enable <b>Anonymous</b> sign-in.</li>
+<li><b>Build > Authentication</b>: Enable <b>Email/Password</b> sign-in.</li>
 <li><b>Project Settings</b>: Copy the <code>firebaseConfig</code> JSON object.</li>
 </ol>
 </details>
@@ -96,12 +96,22 @@ npm start
 Paste this into your Firestore <b>Rules</b> tab to strictly lock data to the owner:
 <pre>
 rules_version = '2';
+
 service cloud.firestore {
-match /databases/{database}/documents {
-match /artifacts/{appId}/users/{userId}/{document=**} {
-allow read, write: if request.auth != null && request.auth.uid == userId;
-}
-}
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    match /artifacts/{appId}/users/{userId}/{document=**} {
+      allow read, write: if isSignedIn() && isOwner(userId);
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
 }
 </pre>
 </details>
