@@ -68,7 +68,7 @@ Built for the UK. Defaults to <b>GBP (£)</b>, handles Tax Year logic, and inclu
 <b>1. Clone & Run</b>
 
 <pre>
-git clone https://www.google.com/search?q=https://github.com/drhaseeb/sterling.git
+git clone https://github.com/drhaseeb/sterling.git
 cd sterling
 npm install
 npm start
