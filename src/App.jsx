@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Landmark, Settings as SettingsIcon, AlertTriangle, RefreshCcw } from 'lucide-react';
+import { Loader2, Landmark, Settings as SettingsIcon } from 'lucide-react';
 import { auth, db } from './services/firebase';
-import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
 import { collection, query, onSnapshot } from 'firebase/firestore';
 import { Sidebar, MobileNav } from './components/Layout';
 
@@ -12,6 +12,7 @@ import Wealth from './modules/Wealth';
 import Planning from './modules/Planning';
 import Scanner from './modules/Scanner';
 import Settings from './modules/Settings';
+import Auth from './modules/Auth'; // <-- Import the new Auth module
 
 const APP_ID = 'default-app-id';
 
@@ -19,37 +20,28 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(true);
-  const [authError, setAuthError] = useState(null);
   
   const [transactions, setTransactions] = useState([]);
   const [investments, setInvestments] = useState([]);
   const [budgets, setBudgets] = useState([]);
   const [goals, setGoals] = useState([]);
 
-  // Auth
+  // Auth State Listener
   useEffect(() => {
     if (!auth) {
       setLoading(false);
       return;
     }
-    
-    setAuthError(null);
-    signInAnonymously(auth).catch(err => {
-      console.error("Auth Failed:", err);
-      setAuthError(err.message);
-      setLoading(false);
-    });
 
-    return onAuthStateChanged(auth, (u) => {
-      if (u) {
-        setUser(u);
-        setAuthError(null);
-      }
+    // We no longer sign in automatically. We wait for user action.
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
       setLoading(false);
     });
+    return () => unsubscribe();
   }, []);
 
-  // Data Listeners
+  // Data Listeners (Only active when user is logged in)
   useEffect(() => {
     if (!user || !db) return;
 
@@ -79,17 +71,18 @@ export default function App() {
   const renderView = () => {
     if (loading) return <div className="flex h-full justify-center items-center"><Loader2 className="animate-spin text-teal-600" size={40} /></div>;
     
-    // CASE 1: No Config Found (First Run)
+    // 1. No Config? Force Welcome Screen
     if (!auth && activeTab !== 'settings') {
        return <WelcomeScreen onConfig={() => setActiveTab('settings')} />;
     }
 
-    // CASE 2: Config Found, but Auth Failed (e.g. Anonymous Auth not enabled)
-    if (auth && !user && authError && activeTab !== 'settings') {
-        return <AuthErrorScreen error={authError} onRetry={() => window.location.reload()} onConfig={() => setActiveTab('settings')} />;
+    // 2. Config exists, but not logged in? Show Auth Screen
+    // (Allow access to Settings even if not logged in, to fix bad keys)
+    if (auth && !user && activeTab !== 'settings') {
+        return <Auth />;
     }
 
-    // CASE 3: App Loaded
+    // 3. Logged In - Show App Modules
     switch(activeTab) {
       case 'dashboard': return <Dashboard transactions={transactions} investments={investments} budgets={budgets} />;
       case 'wallet': return <Wallet transactions={transactions} userId={user?.uid} />;
@@ -103,16 +96,21 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+      {/* Hide Sidebar if not logged in */}
       {(auth && user) && <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />}
       
       <main className="flex-1 overflow-hidden flex flex-col relative">
+        {/* Mobile Header - Always show, but simplify if not logged in */}
         <header className="md:hidden h-16 bg-white border-b border-slate-100 flex items-center justify-between px-4 z-20">
           <div className="flex items-center gap-2 font-bold text-teal-700 text-xl"><Landmark size={20} /> Sterling</div>
           <button onClick={() => setActiveTab('settings')}><SettingsIcon size={20} className="text-slate-400" /></button>
         </header>
         
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8 max-w-6xl mx-auto w-full">
-          {renderView()}
+        <div className="flex-1 overflow-y-auto pb-24 md:pb-8 max-w-6xl mx-auto w-full">
+           {/* Add padding inside modules, not here, to allow full-bleed auth screen */}
+           <div className={(!user && activeTab !== 'settings') ? "h-full" : "p-4 md:p-8"}>
+              {renderView()}
+           </div>
         </div>
 
         {(auth && user) && <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} />}
@@ -121,7 +119,6 @@ export default function App() {
   );
 }
 
-// Sub-components for States
 function WelcomeScreen({ onConfig }) {
   return (
     <div className="flex flex-col items-center justify-center h-full text-center p-10 space-y-6 animate-in fade-in">
@@ -133,30 +130,6 @@ function WelcomeScreen({ onConfig }) {
       <button onClick={onConfig} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-bold text-lg shadow-xl hover:scale-105 transition-transform flex items-center gap-2">
         <SettingsIcon size={20} /> Configure Backend
       </button>
-    </div>
-  );
-}
-
-function AuthErrorScreen({ error, onRetry, onConfig }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-full text-center p-10 space-y-6 animate-in fade-in">
-      <div className="bg-rose-100 p-6 rounded-full text-rose-600 mb-4"><AlertTriangle size={48} /></div>
-      <div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-2">Connection Failed</h2>
-        <p className="text-slate-500 max-w-md mx-auto mb-4">We found your config, but couldn't sign in.</p>
-        <div className="bg-rose-50 text-rose-800 p-4 rounded-xl text-xs font-mono text-left overflow-auto max-w-md mx-auto border border-rose-200">
-           {error}
-        </div>
-        <p className="text-sm text-slate-400 mt-4">Tip: Did you enable "Anonymous Auth" in Firebase Console?</p>
-      </div>
-      <div className="flex gap-3">
-        <button onClick={onRetry} className="bg-teal-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-teal-700 transition-colors flex items-center gap-2">
-          <RefreshCcw size={18} /> Retry
-        </button>
-        <button onClick={onConfig} className="text-slate-500 px-6 py-3 rounded-xl font-bold hover:bg-slate-100 transition-colors">
-          Check Config
-        </button>
-      </div>
     </div>
   );
 }
