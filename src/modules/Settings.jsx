@@ -2,19 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Save, UploadCloud, FileJson, TrendingUp, AlertCircle, Check, LogOut, Globe } from 'lucide-react';
 import { auth } from '../services/firebase';
 import { signOut } from 'firebase/auth';
-import { STORAGE_KEY_CONFIG, STORAGE_KEY_GEMINI, STORAGE_KEY_FINNHUB, STORAGE_KEY_CURRENCY, parseFirebaseConfig } from '../utils/helpers';
+import { STORAGE_KEY_CONFIG, STORAGE_KEY_GEMINI, STORAGE_KEY_FINNHUB, STORAGE_KEY_CURRENCY, ALL_CURRENCIES, parseFirebaseConfig } from '../utils/helpers';
 
 export default function Settings() {
   const [geminiKey, setGeminiKey] = useState('');
   const [finnhubKey, setFinnhubKey] = useState('');
-  const [baseCurrency, setBaseCurrency] = useState('GBP'); // NEW
+  const [baseCurrency, setBaseCurrency] = useState('GBP');
   const [firebaseConf, setFirebaseConf] = useState('');
   const [status, setStatus] = useState({ type: '', msg: '' });
 
   useEffect(() => {
     setGeminiKey(localStorage.getItem(STORAGE_KEY_GEMINI) || '');
     setFinnhubKey(localStorage.getItem(STORAGE_KEY_FINNHUB) || '');
-    setBaseCurrency(localStorage.getItem(STORAGE_KEY_CURRENCY) || 'GBP'); // Load currency
+    setBaseCurrency(localStorage.getItem(STORAGE_KEY_CURRENCY) || 'GBP');
     const storedConfig = localStorage.getItem(STORAGE_KEY_CONFIG);
     if (storedConfig) {
        setFirebaseConf(JSON.stringify(JSON.parse(storedConfig), null, 2));
@@ -25,7 +25,7 @@ export default function Settings() {
     setStatus({ type: '', msg: '' });
     if (geminiKey.trim()) localStorage.setItem(STORAGE_KEY_GEMINI, geminiKey.trim());
     if (finnhubKey.trim()) localStorage.setItem(STORAGE_KEY_FINNHUB, finnhubKey.trim());
-    localStorage.setItem(STORAGE_KEY_CURRENCY, baseCurrency); // Save currency
+    localStorage.setItem(STORAGE_KEY_CURRENCY, baseCurrency);
 
     if (firebaseConf.trim()) {
       const parsed = parseFirebaseConfig(firebaseConf);
@@ -50,13 +50,11 @@ export default function Settings() {
 
   const handleClear = () => {
     if(confirm("Are you sure? This will wipe your keys.")) {
-      localStorage.clear(); // Wipe everything including currency pref
+      localStorage.clear();
       alert("Keys cleared.");
       window.location.reload();
     }
   };
-
-  const currencies = ['GBP', 'USD', 'EUR', 'JPY', 'AUD', 'CAD', 'CHF', 'CNY', 'INR'];
 
   return (
     <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in">
@@ -66,20 +64,18 @@ export default function Settings() {
       </div>
 
       <div className="space-y-6">
-         {/* Base Currency - NEW */}
          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
             <label className="flex items-center gap-2 font-bold text-slate-700 mb-2"><Globe size={18}/> Base Currency</label>
             <p className="text-xs text-slate-400 mb-3">All your totals will be converted to this currency.</p>
             <select 
               value={baseCurrency} 
               onChange={e => setBaseCurrency(e.target.value)}
-              className="w-full bg-slate-50 p-4 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-teal-500"
+              className="w-full bg-slate-50 p-4 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-teal-500 font-mono"
             >
-              {currencies.map(c => <option key={c} value={c}>{c}</option>)}
+              {ALL_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
          </div>
 
-         {/* Firebase Config */}
          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
             <label className="flex items-center gap-2 font-bold text-slate-700 mb-2"><UploadCloud size={18}/> Firebase Config</label>
             <textarea 
@@ -91,7 +87,6 @@ export default function Settings() {
             />
          </div>
 
-         {/* API Keys */}
          <div className="grid md:grid-cols-2 gap-4">
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                 <label className="flex items-center gap-2 font-bold text-slate-700 mb-2"><FileJson size={18}/> Gemini API Key</label>
