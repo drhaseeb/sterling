@@ -1,17 +1,10 @@
 // YAHOO FINANCE ENGINE (Via Proxy)
-// We use 'allorigins' proxy to bypass CORS since Yahoo doesn't support client-side calls directly.
-
 const PROXY_URL = 'https://api.allorigins.win/raw?url=';
 const YAHOO_SEARCH_URL = 'https://query1.finance.yahoo.com/v1/finance/search';
-const YAHOO_QUOTE_URL = 'https://query1.finance.yahoo.com/v8/finance/chart';
+const YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart';
 
-// 1. GET EXCHANGE RATES
-// Yahoo stores pairs like "GBPUSD=X"
+// 1. GET EXCHANGE RATES (Live)
 export const getExchangeRates = async (baseCurrency = 'GBP') => {
-  // We want to convert FROM Base TO others.
-  // But getting ALL rates from Yahoo is hard. 
-  // Strategy: We fallback to a dedicated free Forex API for the bulk rates list
-  // because Yahoo is better for single asset lookups.
   try {
     const res = await fetch(`https://api.exchangerate-api.com/v4/latest/${baseCurrency}`);
     if (!res.ok) return null;
@@ -23,7 +16,7 @@ export const getExchangeRates = async (baseCurrency = 'GBP') => {
   }
 };
 
-// 2. SEARCH ASSETS (Stocks, ETFs, Funds)
+// 2. SEARCH ASSETS
 export const searchAssets = async (query) => {
   if (!query) return [];
   
@@ -34,7 +27,6 @@ export const searchAssets = async (query) => {
     if (!res.ok) return [];
     const data = await res.json();
     
-    // Map Yahoo format to our app format
     return data.quotes.map(item => ({
       symbol: item.symbol,
       description: item.longname || item.shortname,
@@ -52,7 +44,7 @@ export const getQuote = async (symbol) => {
   if (!symbol) return null;
 
   try {
-    const url = `${YAHOO_QUOTE_URL}/${symbol}`;
+    const url = `${YAHOO_CHART_URL}/${symbol}`;
     const res = await fetch(PROXY_URL + encodeURIComponent(url));
     
     if (!res.ok) return null;
@@ -63,13 +55,43 @@ export const getQuote = async (symbol) => {
 
     return {
       price: result.meta.regularMarketPrice,
-      prevClose: result.meta.chartPreviousClose,
-      currency: result.meta.currency, // Yahoo tells us the currency of the asset!
+      currency: result.meta.currency,
       change: result.meta.regularMarketPrice - result.meta.chartPreviousClose,
       percent: ((result.meta.regularMarketPrice - result.meta.chartPreviousClose) / result.meta.chartPreviousClose) * 100
     };
   } catch (e) {
     console.error(`Quote Error for ${symbol}`, e);
+    return null;
+  }
+};
+
+// 4. GET HISTORICAL PRICE (New)
+export const getHistoricalPrice = async (symbol, dateString) => {
+  if (!symbol || !dateString) return null;
+
+  try {
+    // Create timestamps for the specific date (Start of day to End of day)
+    const date = new Date(dateString);
+    const period1 = Math.floor(date.getTime() / 1000);
+    const period2 = period1 + 86400; // +1 Day
+
+    const url = `${YAHOO_CHART_URL}/${symbol}?period1=${period1}&period2=${period2}&interval=1d`;
+    const res = await fetch(PROXY_URL + encodeURIComponent(url));
+    
+    if (!res.ok) return null;
+    const data = await res.json();
+    const result = data.chart.result[0];
+
+    // Return the Close price on that day
+    if (result && result.indicators && result.indicators.quote[0].close) {
+        // Find the first valid close price
+        const closes = result.indicators.quote[0].close;
+        const validClose = closes.find(c => c != null);
+        return validClose || null;
+    }
+    return null;
+  } catch (e) {
+    console.error(`History Error for ${symbol}`, e);
     return null;
   }
 };
