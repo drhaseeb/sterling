@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
-import { formatGBP } from '../utils/helpers';
+import { formatCurrency, STORAGE_KEY_CURRENCY } from '../utils/helpers';
 import { db } from '../services/firebase';
 import { addDoc, collection, deleteDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
@@ -8,6 +8,7 @@ const APP_ID = 'default-app-id';
 
 export default function Planning({ budgets, goals, transactions, userId }) {
   const [tab, setTab] = useState('budgets');
+  const baseCurrency = localStorage.getItem(STORAGE_KEY_CURRENCY) || 'GBP';
   
   return (
     <div className="space-y-6 animate-in fade-in">
@@ -15,12 +16,15 @@ export default function Planning({ budgets, goals, transactions, userId }) {
           <button onClick={() => setTab('budgets')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-colors ${tab === 'budgets' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>Budgets</button>
           <button onClick={() => setTab('goals')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-colors ${tab === 'goals' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>Savings Goals</button>
        </div>
-       {tab === 'budgets' ? <BudgetSection budgets={budgets} transactions={transactions} userId={userId} /> : <GoalSection goals={goals} userId={userId} />}
+       {tab === 'budgets' 
+         ? <BudgetSection budgets={budgets} transactions={transactions} userId={userId} baseCurrency={baseCurrency} /> 
+         : <GoalSection goals={goals} userId={userId} baseCurrency={baseCurrency} />
+       }
     </div>
   );
 }
 
-function BudgetSection({ budgets, transactions, userId }) {
+function BudgetSection({ budgets, transactions, userId, baseCurrency }) {
   const [form, setForm] = useState({ category: 'Groceries', limit: '' });
   const currentMonth = new Date().getMonth();
 
@@ -45,7 +49,7 @@ function BudgetSection({ budgets, transactions, userId }) {
              </select>
            </div>
            <div className="flex-1">
-             <label className="text-xs font-bold text-slate-400 uppercase">Monthly Limit (£)</label>
+             <label className="text-xs font-bold text-slate-400 uppercase">Monthly Limit ({baseCurrency})</label>
              <input type="number" value={form.limit} onChange={e => setForm({...form, limit: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none" />
            </div>
            <button className="bg-teal-600 text-white px-6 py-2 rounded-lg font-bold h-10">Set Budget</button>
@@ -63,7 +67,7 @@ function BudgetSection({ budgets, transactions, userId }) {
                  <div key={b.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
                     <div className="flex justify-between mb-2">
                        <span className="font-bold text-slate-800">{b.category}</span>
-                       <span className={`font-bold text-sm ${isOver ? 'text-rose-500' : 'text-slate-500'}`}>{formatGBP(spent)} / {formatGBP(b.limit)}</span>
+                       <span className={`font-bold text-sm ${isOver ? 'text-rose-500' : 'text-slate-500'}`}>{formatCurrency(spent, baseCurrency)} / {formatCurrency(b.limit, baseCurrency)}</span>
                     </div>
                     <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                        <div className={`h-full rounded-full ${isOver ? 'bg-rose-500' : 'bg-teal-500'}`} style={{ width: `${pct}%` }}></div>
@@ -77,7 +81,7 @@ function BudgetSection({ budgets, transactions, userId }) {
   );
 }
 
-function GoalSection({ goals, userId }) {
+function GoalSection({ goals, userId, baseCurrency }) {
    const [form, setForm] = useState({ name: '', target: '', savedAmount: '' });
 
    const handleAdd = async (e) => {
@@ -94,8 +98,8 @@ function GoalSection({ goals, userId }) {
       <div className="space-y-6">
          <form onSubmit={handleAdd} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-wrap items-end gap-4">
             <div className="flex-1 min-w-[200px]"><label className="text-xs font-bold text-slate-400 uppercase">Goal Name</label><input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none" /></div>
-            <div className="w-32"><label className="text-xs font-bold text-slate-400 uppercase">Target (£)</label><input type="number" value={form.target} onChange={e => setForm({...form, target: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none" /></div>
-            <div className="w-32"><label className="text-xs font-bold text-slate-400 uppercase">Saved (£)</label><input type="number" value={form.savedAmount} onChange={e => setForm({...form, savedAmount: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none" /></div>
+            <div className="w-32"><label className="text-xs font-bold text-slate-400 uppercase">Target ({baseCurrency})</label><input type="number" value={form.target} onChange={e => setForm({...form, target: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none" /></div>
+            <div className="w-32"><label className="text-xs font-bold text-slate-400 uppercase">Saved ({baseCurrency})</label><input type="number" value={form.savedAmount} onChange={e => setForm({...form, savedAmount: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none" /></div>
             <button className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold h-10">Add Goal</button>
          </form>
 
@@ -105,7 +109,7 @@ function GoalSection({ goals, userId }) {
                return (
                   <div key={g.id} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm relative">
                      <div className="flex justify-between mb-4">
-                        <div><h3 className="font-bold text-lg">{g.name}</h3><p className="text-xs text-slate-500">{formatGBP(g.savedAmount)} of {formatGBP(g.target)}</p></div>
+                        <div><h3 className="font-bold text-lg">{g.name}</h3><p className="text-xs text-slate-500">{formatCurrency(g.savedAmount, baseCurrency)} of {formatCurrency(g.target, baseCurrency)}</p></div>
                         <button onClick={() => deleteGoal(g.id)} className="text-slate-300 hover:text-rose-500"><X size={18} /></button>
                      </div>
                      <div className="h-4 bg-slate-100 rounded-full overflow-hidden mb-2">
