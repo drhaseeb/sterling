@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { TrendingUp, PiggyBank, Search, Loader2, ArrowUpRight, ArrowDownLeft, RefreshCcw, X } from 'lucide-react';
-import { formatCurrency, STORAGE_KEY_CURRENCY } from '../utils/helpers';
+import { formatCurrency, STORAGE_KEY_CURRENCY, ALL_CURRENCIES } from '../utils/helpers';
 import { db } from '../services/firebase';
 import { addDoc, collection, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { searchAssets, getQuote, getExchangeRates } from '../services/finance';
@@ -22,11 +22,9 @@ export default function Wealth({ investments, userId }) {
   const refreshPrices = async () => {
     setRefreshing(true);
     
-    // 1. Fetch Forex Rates relative to Base Currency
     const rates = await getExchangeRates(baseCurrency);
     if (rates) setForexRates(rates);
 
-    // 2. Fetch Asset Prices
     const newPrices = {};
     const symbols = investments.filter(i => i.symbol).map(i => i.symbol);
     
@@ -44,21 +42,16 @@ export default function Wealth({ investments, userId }) {
     if(confirm("Remove this asset?")) await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'investments', id));
   }
 
-  // Calculate Total Wealth in Base Currency
   const totalWealth = investments.reduce((sum, inv) => {
     let assetValue = inv.currentValue || 0;
     
-    // If it's a live asset (Stock/ETF), calculate value in its NATIVE currency first
     if (inv.symbol && livePrices[inv.symbol]) {
       assetValue = inv.quantity * livePrices[inv.symbol].price;
     }
 
-    // Now Convert to Base Currency
-    const assetCurrency = inv.currency || baseCurrency; // fallback
+    const assetCurrency = inv.currency || baseCurrency; 
     
     if (assetCurrency !== baseCurrency && forexRates[assetCurrency]) {
-        // Formula: Native / Rate = Base 
-        // (Assuming rates are Base->Native, e.g. 1 GBP = 1.2 USD)
         assetValue = assetValue / forexRates[assetCurrency];
     }
 
@@ -67,7 +60,6 @@ export default function Wealth({ investments, userId }) {
 
   return (
     <div className="space-y-6 animate-in fade-in">
-       {/* HEADER CARD */}
        <div className="bg-indigo-900 text-white p-8 rounded-[2.5rem] shadow-xl relative overflow-hidden">
          <div className="relative z-10">
             <div className="flex justify-between items-start">
@@ -94,10 +86,8 @@ export default function Wealth({ investments, userId }) {
              const live = livePrices[inv.symbol];
              const itemCurrency = inv.currency || baseCurrency;
              
-             // Value in NATIVE currency
              const nativeValue = live ? (inv.quantity * live.price) : inv.currentValue;
              
-             // Convert to BASE for display (optional, but good for comparison)
              let baseValue = nativeValue;
              if (itemCurrency !== baseCurrency && forexRates[itemCurrency]) {
                  baseValue = nativeValue / forexRates[itemCurrency];
@@ -154,10 +144,8 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
       costBasis: '', 
       currentValue: '', 
       interestRate: '',
-      currency: baseCurrency // Default to base, but user can change
+      currency: baseCurrency 
   });
-
-  const currencies = ['GBP', 'USD', 'EUR', 'JPY', 'AUD', 'CAD', 'CNY'];
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -168,8 +156,6 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
   };
 
   const selectAsset = (asset) => {
-    // Heuristic: If symbol ends in .L, it's likely GBP. If not, assume USD for stocks (simplified).
-    // This is a guess, user can override.
     let suggestedCurrency = 'USD';
     if (asset.symbol.endsWith('.L')) suggestedCurrency = 'GBP';
     
@@ -243,8 +229,8 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
               {/* Currency Selector for the Asset */}
               <div>
                  <label className="text-xs font-bold text-slate-400 uppercase">Asset Currency</label>
-                 <select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none font-bold">
-                    {currencies.map(c => <option key={c}>{c}</option>)}
+                 <select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none font-bold font-mono">
+                    {ALL_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                  </select>
               </div>
 
