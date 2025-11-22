@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Filter, ArrowUpRight, ArrowDownLeft, X, Globe, Loader2 } from 'lucide-react';
-import { formatCurrency, STORAGE_KEY_CURRENCY } from '../utils/helpers';
+import { formatCurrency, STORAGE_KEY_CURRENCY, ALL_CURRENCIES } from '../utils/helpers';
 import { db } from '../services/firebase';
 import { addDoc, collection, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { getExchangeRates } from '../services/finance';
@@ -73,7 +73,6 @@ export default function Wallet({ transactions, userId }) {
                 </div>
              </div>
              <div className="text-right">
-               {/* We show the Converted Amount in Base Currency here for consistency */}
                <p className={`font-bold ${tx.type === 'income' ? 'text-teal-600' : 'text-slate-900'}`}>
                  {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, baseCurrency)}
                </p>
@@ -107,14 +106,9 @@ function AddTransactionModal({ userId, onClose, baseCurrency }) {
     let finalAmount = parseFloat(form.amount);
     let exchangeRate = 1;
 
-    // If user selected a different currency, convert it to Base Currency
     if (form.currency !== baseCurrency) {
       try {
-        const rates = await getExchangeRates(baseCurrency); // Get rates where Base = 1
-        // rates[form.currency] gives us how much 1 Base equals in Foreign
-        // So Foreign / Rate = Base
-        // Example: Base GBP. Spent 100 USD. Rate GBP->USD is 1.25. 
-        // 100 / 1.25 = 80 GBP.
+        const rates = await getExchangeRates(baseCurrency); 
         if (rates && rates[form.currency]) {
           exchangeRate = rates[form.currency];
           finalAmount = parseFloat(form.amount) / exchangeRate; 
@@ -129,7 +123,7 @@ function AddTransactionModal({ userId, onClose, baseCurrency }) {
       ...form, 
       originalAmount: parseFloat(form.amount),
       originalCurrency: form.currency,
-      amount: finalAmount, // Normalized to Base Currency
+      amount: finalAmount, 
       exchangeRateUsed: exchangeRate,
       createdAt: serverTimestamp()
     });
@@ -137,8 +131,6 @@ function AddTransactionModal({ userId, onClose, baseCurrency }) {
     setLoading(false);
     onClose();
   };
-
-  const currencies = ['GBP', 'USD', 'EUR', 'JPY', 'AUD', 'CAD', 'CNY'];
 
   return (
     <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -161,8 +153,8 @@ function AddTransactionModal({ userId, onClose, baseCurrency }) {
              </div>
              <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Currency</label>
-                <select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none font-bold">
-                  {currencies.map(c => <option key={c}>{c}</option>)}
+                <select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none font-bold font-mono">
+                  {ALL_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
              </div>
           </div>
