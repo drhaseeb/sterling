@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Plus, Filter, ArrowUpRight, ArrowDownLeft, X, Globe, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, Filter, ArrowUpRight, ArrowDownLeft, X, Loader2 } from 'lucide-react';
 import { formatCurrency, STORAGE_KEY_CURRENCY, ALL_CURRENCIES } from '../utils/helpers';
 import { db } from '../services/firebase';
 import { addDoc, collection, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
@@ -7,12 +7,13 @@ import { getExchangeRates } from '../services/finance';
 
 const APP_ID = 'default-app-id'; 
 
+const EXPENSE_CATS = ['Groceries', 'Transport', 'Utilities', 'Dining', 'Shopping', 'Housing', 'Health', 'Entertainment', 'Education', 'Travel', 'Personal Care', 'Subscriptions', 'Misc'];
+const INCOME_CATS = ['Salary', 'Freelance', 'Business', 'Dividends', 'Interest', 'Gift', 'Refund', 'Rental', 'Sold Asset', 'Other'];
+
 export default function Wallet({ transactions, userId }) {
   const [showAdd, setShowAdd] = useState(false);
   const [filterCat, setFilterCat] = useState('All');
   const [filterTime, setFilterTime] = useState('all');
-  
-  // Get Base Currency
   const baseCurrency = localStorage.getItem(STORAGE_KEY_CURRENCY) || 'GBP';
 
   const categories = ['All', ...new Set(transactions.map(t => t.category))];
@@ -35,7 +36,7 @@ export default function Wallet({ transactions, userId }) {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Wallet</h2>
-          <p className="text-xs text-slate-500">Base Currency: {baseCurrency}</p>
+          <p className="text-xs text-slate-500">Base: {baseCurrency}</p>
         </div>
         <button onClick={() => setShowAdd(true)} className="bg-teal-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-teal-700 transition-colors shadow-lg shadow-teal-600/20">
           <Plus size={18} /> Add Entry
@@ -96,10 +97,19 @@ function AddTransactionModal({ userId, onClose, baseCurrency }) {
     amount: '', 
     currency: baseCurrency, 
     merchant: '', 
-    category: 'Groceries', 
+    category: 'Groceries', // Default
     date: new Date().toISOString().split('T')[0], 
     taxDeductible: false 
   });
+
+  // Update category default when type changes
+  const setType = (type) => {
+      setForm({
+          ...form, 
+          type,
+          category: type === 'expense' ? EXPENSE_CATS[0] : INCOME_CATS[0]
+      });
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -143,9 +153,8 @@ function AddTransactionModal({ userId, onClose, baseCurrency }) {
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="flex bg-slate-100 p-1 rounded-xl">
-            {['expense', 'income'].map(t => (
-              <button type="button" key={t} onClick={() => setForm({...form, type: t})} className={`flex-1 py-2 capitalize rounded-lg text-sm font-bold ${form.type === t ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>{t}</button>
-            ))}
+            <button type="button" onClick={() => setType('expense')} className={`flex-1 py-2 capitalize rounded-lg text-sm font-bold ${form.type === 'expense' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Expense</button>
+            <button type="button" onClick={() => setType('income')} className={`flex-1 py-2 capitalize rounded-lg text-sm font-bold ${form.type === 'income' ? 'bg-white shadow-sm text-teal-600' : 'text-slate-400'}`}>Income</button>
           </div>
           
           <div className="grid grid-cols-3 gap-3">
@@ -164,8 +173,9 @@ function AddTransactionModal({ userId, onClose, baseCurrency }) {
           <input type="date" required value={form.date} onChange={e => setForm({...form, date: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" />
           <input type="text" placeholder={form.type === 'income' ? "Source" : "Merchant"} required value={form.merchant} onChange={e => setForm({...form, merchant: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" />
           
+          {/* Dynamic Category List */}
           <select value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none">
-            {['Groceries', 'Transport', 'Utilities', 'Dining', 'Shopping', 'Salary', 'Freelance', 'Bills', 'Health', 'Entertainment'].map(c => <option key={c}>{c}</option>)}
+            {(form.type === 'expense' ? EXPENSE_CATS : INCOME_CATS).map(c => <option key={c}>{c}</option>)}
           </select>
 
           {form.type === 'expense' && (
