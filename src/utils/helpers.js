@@ -1,8 +1,8 @@
 // LocalStorage Keys
 export const STORAGE_KEY_CONFIG = 'sterling_firebase_config';
 export const STORAGE_KEY_GEMINI = 'sterling_gemini_key';
-export const STORAGE_KEY_FINNHUB = 'sterling_finnhub_key';
 export const STORAGE_KEY_CURRENCY = 'sterling_base_currency';
+// Removed FINNHUB Key
 
 // Comprehensive List of World Currencies
 export const ALL_CURRENCIES = [
@@ -24,11 +24,8 @@ export const ALL_CURRENCIES = [
   "VUV", "WST", "XAF", "XCD", "XOF", "XPF", "YER", "ZAR", "ZMW", "ZWL"
 ];
 
-// Dynamic Currency Formatter
 export const formatCurrency = (amount, currencyCode = 'GBP') => {
-  // Fallback to GBP if code is missing or invalid
   const code = currencyCode || 'GBP';
-  
   try {
     return new Intl.NumberFormat('en-GB', {
       style: 'currency',
@@ -36,12 +33,10 @@ export const formatCurrency = (amount, currencyCode = 'GBP') => {
       minimumFractionDigits: 2
     }).format(amount);
   } catch (e) {
-    // Fallback for obscure currencies not supported by browser Intl
     return `${code} ${parseFloat(amount).toFixed(2)}`;
   }
 };
 
-// Smart Config Parser
 export const parseFirebaseConfig = (inputString) => {
   if (!inputString) return null;
   try {
