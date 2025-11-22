@@ -1,6 +1,7 @@
 // LocalStorage Keys
 export const STORAGE_KEY_CONFIG = 'sterling_firebase_config';
 export const STORAGE_KEY_GEMINI = 'sterling_gemini_key';
+export const STORAGE_KEY_FINNHUB = 'sterling_finnhub_key';
 
 // UK Currency Formatter
 export const formatGBP = (amount) => {
