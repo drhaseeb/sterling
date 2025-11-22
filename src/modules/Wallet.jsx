@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Plus, Filter, ArrowUpRight, ArrowDownLeft, X, Globe, Loader2 } from 'lucide-react';
 import { formatCurrency, STORAGE_KEY_CURRENCY, ALL_CURRENCIES } from '../utils/helpers';
 import { db } from '../services/firebase';
@@ -11,6 +11,8 @@ export default function Wallet({ transactions, userId }) {
   const [showAdd, setShowAdd] = useState(false);
   const [filterCat, setFilterCat] = useState('All');
   const [filterTime, setFilterTime] = useState('all');
+  
+  // Get Base Currency
   const baseCurrency = localStorage.getItem(STORAGE_KEY_CURRENCY) || 'GBP';
 
   const categories = ['All', ...new Set(transactions.map(t => t.category))];
