@@ -1,17 +1,17 @@
-import React, { useState } from 'react';
-import { Plus, Filter, ArrowUpRight, ArrowDownLeft, X } from 'lucide-react';
-import { formatGBP } from '../utils/helpers';
+import React, { useState, useEffect } from 'react';
+import { Plus, Filter, ArrowUpRight, ArrowDownLeft, X, Globe, Loader2 } from 'lucide-react';
+import { formatCurrency, STORAGE_KEY_CURRENCY } from '../utils/helpers';
 import { db } from '../services/firebase';
 import { addDoc, collection, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { getExchangeRates } from '../services/finance';
 
-// NOTE: Pass __app_id from parent or context if needed, or import from constants
-// For this snippet, we assume appId is passed or available.
 const APP_ID = 'default-app-id'; 
 
 export default function Wallet({ transactions, userId }) {
   const [showAdd, setShowAdd] = useState(false);
   const [filterCat, setFilterCat] = useState('All');
   const [filterTime, setFilterTime] = useState('all');
+  const baseCurrency = localStorage.getItem(STORAGE_KEY_CURRENCY) || 'GBP';
 
   const categories = ['All', ...new Set(transactions.map(t => t.category))];
   const filtered = transactions.filter(t => {
@@ -25,13 +25,16 @@ export default function Wallet({ transactions, userId }) {
   });
 
   const deleteTx = async (id) => {
-    if(window.confirm('Delete transaction?')) await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'transactions', id));
+    if(confirm('Delete transaction?')) await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'transactions', id));
   };
 
   return (
     <div className="space-y-6 animate-in fade-in">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-slate-900">Wallet</h2>
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">Wallet</h2>
+          <p className="text-xs text-slate-500">Base Currency: {baseCurrency}</p>
+        </div>
         <button onClick={() => setShowAdd(true)} className="bg-teal-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-teal-700 transition-colors shadow-lg shadow-teal-600/20">
           <Plus size={18} /> Add Entry
         </button>
@@ -60,35 +63,82 @@ export default function Wallet({ transactions, userId }) {
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="font-bold text-slate-900">{tx.merchant || 'Unknown'}</p>
-                    {tx.taxDeductible && <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 rounded font-bold">TAX DED.</span>}
+                    {tx.originalCurrency && tx.originalCurrency !== baseCurrency && (
+                      <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 rounded font-bold">
+                        {formatCurrency(tx.originalAmount, tx.originalCurrency)}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-slate-500">{new Date(tx.date).toLocaleDateString()} • {tx.category}</p>
                 </div>
              </div>
              <div className="text-right">
-               <p className={`font-bold ${tx.type === 'income' ? 'text-teal-600' : 'text-slate-900'}`}>{tx.type === 'income' ? '+' : '-'}{formatGBP(tx.amount)}</p>
-               {tx.taxAmount > 0 && <p className="text-[10px] text-slate-400">Tax: {formatGBP(tx.taxAmount)}</p>}
+               {/* We show the Converted Amount in Base Currency here for consistency */}
+               <p className={`font-bold ${tx.type === 'income' ? 'text-teal-600' : 'text-slate-900'}`}>
+                 {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, baseCurrency)}
+               </p>
                <button onClick={() => deleteTx(tx.id)} className="text-[10px] text-rose-500 opacity-0 group-hover:opacity-100">Delete</button>
              </div>
           </div>
         ))}
       </div>
 
-      {showAdd && <AddTransactionModal userId={userId} onClose={() => setShowAdd(false)} />}
+      {showAdd && <AddTransactionModal userId={userId} onClose={() => setShowAdd(false)} baseCurrency={baseCurrency} />}
     </div>
   );
 }
 
-function AddTransactionModal({ userId, onClose }) {
-  const [form, setForm] = useState({ type: 'expense', amount: '', merchant: '', category: 'Groceries', date: new Date().toISOString().split('T')[0], taxDeductible: false, taxAmount: '' });
+function AddTransactionModal({ userId, onClose, baseCurrency }) {
+  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState({ 
+    type: 'expense', 
+    amount: '', 
+    currency: baseCurrency, 
+    merchant: '', 
+    category: 'Groceries', 
+    date: new Date().toISOString().split('T')[0], 
+    taxDeductible: false 
+  });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
+
+    let finalAmount = parseFloat(form.amount);
+    let exchangeRate = 1;
+
+    // If user selected a different currency, convert it to Base Currency
+    if (form.currency !== baseCurrency) {
+      try {
+        const rates = await getExchangeRates(baseCurrency); // Get rates where Base = 1
+        // rates[form.currency] gives us how much 1 Base equals in Foreign
+        // So Foreign / Rate = Base
+        // Example: Base GBP. Spent 100 USD. Rate GBP->USD is 1.25. 
+        // 100 / 1.25 = 80 GBP.
+        if (rates && rates[form.currency]) {
+          exchangeRate = rates[form.currency];
+          finalAmount = parseFloat(form.amount) / exchangeRate; 
+        }
+      } catch (err) {
+        console.error("Conversion failed", err);
+        alert("Could not fetch exchange rate. Saving as is.");
+      }
+    }
+
     await addDoc(collection(db, 'artifacts', APP_ID, 'users', userId, 'transactions'), {
-      ...form, amount: parseFloat(form.amount), taxAmount: parseFloat(form.taxAmount || 0), createdAt: serverTimestamp()
+      ...form, 
+      originalAmount: parseFloat(form.amount),
+      originalCurrency: form.currency,
+      amount: finalAmount, // Normalized to Base Currency
+      exchangeRateUsed: exchangeRate,
+      createdAt: serverTimestamp()
     });
+    
+    setLoading(false);
     onClose();
   };
+
+  const currencies = ['GBP', 'USD', 'EUR', 'JPY', 'AUD', 'CAD', 'CNY'];
 
   return (
     <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -103,28 +153,37 @@ function AddTransactionModal({ userId, onClose }) {
               <button type="button" key={t} onClick={() => setForm({...form, type: t})} className={`flex-1 py-2 capitalize rounded-lg text-sm font-bold ${form.type === t ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>{t}</button>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-3">
-             <input type="number" placeholder="Amount" required value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} className="bg-slate-50 p-3 rounded-xl outline-none" />
-             <input type="date" required value={form.date} onChange={e => setForm({...form, date: e.target.value})} className="bg-slate-50 p-3 rounded-xl outline-none" />
+          
+          <div className="grid grid-cols-3 gap-3">
+             <div className="col-span-2">
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Amount</label>
+                <input type="number" step="any" required value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none font-bold text-lg" />
+             </div>
+             <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Currency</label>
+                <select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none font-bold">
+                  {currencies.map(c => <option key={c}>{c}</option>)}
+                </select>
+             </div>
           </div>
-          <input type="text" placeholder={form.type === 'income' ? "Source (e.g. Salary)" : "Merchant (e.g. Tesco)"} required value={form.merchant} onChange={e => setForm({...form, merchant: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" />
+
+          <input type="date" required value={form.date} onChange={e => setForm({...form, date: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" />
+          <input type="text" placeholder={form.type === 'income' ? "Source" : "Merchant"} required value={form.merchant} onChange={e => setForm({...form, merchant: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" />
           
           <select value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none">
             {['Groceries', 'Transport', 'Utilities', 'Dining', 'Shopping', 'Salary', 'Freelance', 'Bills', 'Health', 'Entertainment'].map(c => <option key={c}>{c}</option>)}
           </select>
 
-          <div className="p-3 border border-slate-100 rounded-xl">
-             {form.type === 'expense' ? (
-               <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                 <input type="checkbox" checked={form.taxDeductible} onChange={e => setForm({...form, taxDeductible: e.target.checked})} className="rounded text-teal-600 focus:ring-teal-500"/>
-                 Is this Tax Deductible?
-               </label>
-             ) : (
-               <input type="number" placeholder="Tax Withheld (£)" value={form.taxAmount} onChange={e => setForm({...form, taxAmount: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-sm" />
-             )}
-          </div>
+          {form.type === 'expense' && (
+             <label className="flex items-center gap-2 text-sm font-medium text-slate-600 p-2">
+               <input type="checkbox" checked={form.taxDeductible} onChange={e => setForm({...form, taxDeductible: e.target.checked})} className="rounded text-teal-600 focus:ring-teal-500"/>
+               Is this Tax Deductible?
+             </label>
+          )}
 
-          <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold">Save Transaction</button>
+          <button disabled={loading} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold flex justify-center items-center gap-2">
+            {loading ? <Loader2 className="animate-spin" /> : "Save Transaction"}
+          </button>
         </form>
       </div>
     </div>
