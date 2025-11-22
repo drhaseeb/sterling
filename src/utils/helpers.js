@@ -2,12 +2,16 @@
 export const STORAGE_KEY_CONFIG = 'sterling_firebase_config';
 export const STORAGE_KEY_GEMINI = 'sterling_gemini_key';
 export const STORAGE_KEY_FINNHUB = 'sterling_finnhub_key';
+export const STORAGE_KEY_CURRENCY = 'sterling_base_currency';
 
-// UK Currency Formatter
-export const formatGBP = (amount) => {
+// Dynamic Currency Formatter
+export const formatCurrency = (amount, currencyCode = 'GBP') => {
+  // Fallback to GBP if code is missing
+  const code = currencyCode || 'GBP';
+  
   return new Intl.NumberFormat('en-GB', {
     style: 'currency',
-    currency: 'GBP',
+    currency: code,
     minimumFractionDigits: 2
   }).format(amount);
 };
