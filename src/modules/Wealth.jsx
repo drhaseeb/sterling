@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, PiggyBank, Search, Loader2, ArrowUpRight, ArrowDownLeft, RefreshCcw, X } from 'lucide-react';
+import { TrendingUp, PiggyBank, Search, Loader2, ArrowUpRight, ArrowDownLeft, RefreshCcw, X, Calendar } from 'lucide-react';
 import { formatCurrency, STORAGE_KEY_CURRENCY, ALL_CURRENCIES } from '../utils/helpers';
 import { db } from '../services/firebase';
 import { addDoc, collection, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { searchAssets, getQuote, getExchangeRates } from '../services/finance';
+import { searchAssets, getQuote, getExchangeRates, getHistoricalPrice } from '../services/finance';
 
 const APP_ID = 'default-app-id';
 
@@ -32,7 +32,6 @@ export default function Wealth({ investments, userId }) {
       try {
         const quote = await getQuote(sym);
         if (quote) {
-           // Yahoo often returns pence for LSE (e.g. 6500 GBp). Normalize to GBP.
            if (quote.currency === 'GBp') {
              quote.price = quote.price / 100;
              quote.currency = 'GBP';
@@ -51,20 +50,21 @@ export default function Wealth({ investments, userId }) {
 
   const totalWealth = investments.reduce((sum, inv) => {
     let assetValue = inv.currentValue || 0;
-    let itemCurrency = inv.currency || baseCurrency;
-
-    // If live asset, prefer live price
+    
     if (inv.symbol && livePrices[inv.symbol]) {
       assetValue = inv.quantity * livePrices[inv.symbol].price;
-      // Use the currency returned by Yahoo if available
-      if (livePrices[inv.symbol].currency) {
-        itemCurrency = livePrices[inv.symbol].currency;
-      }
     }
 
-    // Convert to Base
-    if (itemCurrency !== baseCurrency && forexRates[itemCurrency]) {
-        assetValue = assetValue / forexRates[itemCurrency];
+    // Convert from Asset Currency to Base Currency
+    // We use the LIVE forex rates for the Total Wealth view
+    // Note: inv.currency is the currency the USER INVESTED IN. 
+    // livePrices.currency is the FUND NATIVE currency.
+    // We need to normalize to Base.
+    
+    const nativeCurrency = (inv.symbol && livePrices[inv.symbol]) ? livePrices[inv.symbol].currency : (inv.currency || baseCurrency);
+    
+    if (nativeCurrency !== baseCurrency && forexRates[nativeCurrency]) {
+        assetValue = assetValue / forexRates[nativeCurrency];
     }
 
     return sum + assetValue;
@@ -72,6 +72,7 @@ export default function Wealth({ investments, userId }) {
 
   return (
     <div className="space-y-6 animate-in fade-in">
+       {/* HEADER CARD */}
        <div className="bg-indigo-900 text-white p-8 rounded-[2.5rem] shadow-xl relative overflow-hidden">
          <div className="relative z-10">
             <div className="flex justify-between items-start">
@@ -96,15 +97,36 @@ export default function Wealth({ investments, userId }) {
        <div className="grid md:grid-cols-2 gap-4">
           {investments.map(inv => {
              const live = livePrices[inv.symbol];
-             let itemCurrency = inv.currency || baseCurrency;
-             if (live && live.currency) itemCurrency = live.currency;
-
+             
+             // Determine Native Currency (The currency the stock is traded in)
+             const nativeCurrency = live?.currency || inv.currency || baseCurrency;
+             
+             // 1. Current Value in Native Currency (e.g. 10 shares * £50 = £500)
              const nativeValue = live ? (inv.quantity * live.price) : inv.currentValue;
              
-             let baseValue = nativeValue;
-             if (itemCurrency !== baseCurrency && forexRates[itemCurrency]) {
-                 baseValue = nativeValue / forexRates[itemCurrency];
+             // 2. Invested Amount (Cost Basis)
+             // This is stored in inv.currency (The currency the user paid with)
+             const investedAmount = inv.costBasis || 0;
+             const investedCurrency = inv.currency || baseCurrency;
+
+             // 3. ROI Calculation (Challenging part: Cross-currency ROI)
+             // We convert everything to BASE currency to compare apples to apples
+             
+             // Convert Current Value -> Base
+             let baseCurrentValue = nativeValue;
+             if (nativeCurrency !== baseCurrency && forexRates[nativeCurrency]) {
+                 baseCurrentValue = nativeValue / forexRates[nativeCurrency];
              }
+
+             // Convert Invested Amount -> Base (Approximate using CURRENT rate for simple display, 
+             // ideally we'd store the historical base value, but this is decent for now)
+             let baseInvestedValue = investedAmount;
+             if (investedCurrency !== baseCurrency && forexRates[investedCurrency]) {
+                 baseInvestedValue = investedAmount / forexRates[investedCurrency];
+             }
+
+             const returnAmt = baseCurrentValue - baseInvestedValue;
+             const returnPct = baseInvestedValue > 0 ? (returnAmt / baseInvestedValue) * 100 : 0;
 
              return (
                <div key={inv.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-4 group relative overflow-hidden">
@@ -116,7 +138,7 @@ export default function Wealth({ investments, userId }) {
                        <div className="overflow-hidden">
                           <p className="font-bold text-slate-900 line-clamp-1 text-lg">{inv.name}</p>
                           <div className="flex flex-wrap gap-2 text-xs text-slate-500 mt-1">
-                             <span className="font-bold bg-slate-100 px-1 rounded">{itemCurrency}</span>
+                             <span className="font-bold bg-slate-100 px-1 rounded">{nativeCurrency}</span>
                              {inv.symbol && <span className="font-mono">{inv.symbol}</span>}
                           </div>
                        </div>
@@ -126,14 +148,26 @@ export default function Wealth({ investments, userId }) {
 
                   <div className="flex items-end justify-between border-t border-slate-50 pt-3">
                      <div>
-                        <p className="text-xs text-slate-400 uppercase font-bold mb-1">Value</p>
+                        <p className="text-xs text-slate-400 uppercase font-bold mb-1">Current Value</p>
                         <div className="flex flex-col">
-                            <span className="font-bold text-xl text-slate-900">{formatCurrency(nativeValue, itemCurrency)}</span>
-                            {itemCurrency !== baseCurrency && (
-                                <span className="text-xs text-slate-400">≈ {formatCurrency(baseValue, baseCurrency)}</span>
+                            <span className="font-bold text-xl text-slate-900">{formatCurrency(nativeValue, nativeCurrency)}</span>
+                            {nativeCurrency !== baseCurrency && (
+                                <span className="text-xs text-slate-400">≈ {formatCurrency(baseCurrentValue, baseCurrency)}</span>
                             )}
                         </div>
                      </div>
+                     
+                     {/* ROI Badge */}
+                     {investedAmount > 0 && (
+                        <div className="text-right">
+                            <p className="text-xs text-slate-400 uppercase font-bold mb-1">Return</p>
+                            <div className={`font-bold flex items-center justify-end gap-1 ${returnAmt >= 0 ? 'text-green-600' : 'text-rose-600'}`}>
+                                {returnAmt >= 0 ? <ArrowUpRight size={16}/> : <ArrowDownLeft size={16}/>}
+                                {returnPct.toFixed(1)}%
+                            </div>
+                            <span className="text-[10px] text-slate-400">Inv: {formatCurrency(investedAmount, investedCurrency)}</span>
+                        </div>
+                     )}
                   </div>
                </div>
              );
@@ -149,15 +183,21 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   
+  // Calculated state
+  const [calculating, setCalculating] = useState(false);
+  const [historicalPrice, setHistoricalPrice] = useState(null);
+  const [calculatedQuantity, setCalculatedQuantity] = useState('');
+
   const [form, setForm] = useState({ 
       name: '', 
       symbol: '', 
       type: 'Stock', 
-      quantity: '', 
-      costBasis: '', 
+      amountInvested: '', // New field: Total money put in
+      dateInvested: new Date().toISOString().split('T')[0], // New field
       currentValue: '', 
       interestRate: '',
-      currency: baseCurrency 
+      currency: baseCurrency,
+      nativeCurrency: '' // The currency the fund trades in
   });
 
   const handleSearch = async (e) => {
@@ -169,36 +209,85 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
   };
 
   const selectAsset = (asset) => {
-    // Guess currency based on Exchange to assist user
-    // L = London (GBP), PA = Paris (EUR), etc.
-    let suggested = 'USD'; // Default
-    const suffix = asset.symbol.split('.')[1];
-    
-    if (suffix === 'L') suggested = 'GBP';
-    if (['PA','DE','AS'].includes(suffix)) suggested = 'EUR';
-    if (['TO'].includes(suffix)) suggested = 'JPY';
-    if (['CN','SS'].includes(suffix)) suggested = 'CNY';
-    if (['TO'].includes(suffix)) suggested = 'CAD';
+    // Heuristic for Native Currency
+    let native = 'USD';
+    if (asset.symbol.endsWith('.L')) native = 'GBP';
+    if (asset.symbol.includes('.PA')) native = 'EUR';
+    // ... other heuristics ...
 
     setForm({ 
       ...form, 
       name: asset.description || asset.symbol, 
       symbol: asset.symbol, 
       type: asset.type || 'Stock', 
-      currency: suggested 
+      currency: native, // Default invest currency to native, user can change
+      nativeCurrency: native
     });
     setResults([]);
     setQuery('');
   };
 
+  // THE MAGIC: Calculate Quantity based on History
+  useEffect(() => {
+    const calculateQty = async () => {
+        if (!form.symbol || !form.amountInvested || !form.dateInvested) return;
+        
+        setCalculating(true);
+        
+        // 1. Get Historical Price of Asset (in Native Currency)
+        const priceAtDate = await getHistoricalPrice(form.symbol, form.dateInvested);
+        
+        if (priceAtDate) {
+            let investmentInNative = parseFloat(form.amountInvested);
+
+            // 2. If Invested Currency != Native Currency, we need historical Forex
+            // E.g. Invested USD, Fund is GBP. We need USDGBP=X on that date.
+            if (form.currency !== form.nativeCurrency) {
+                // Construct Pair Symbol (e.g. GBPUSD=X)
+                // Note: Yahoo pairs are usually "BaseTarget=X"
+                // We try both directions if needed, but for simplicity assume Major pairs exist
+                const pair = `${form.currency}${form.nativeCurrency}=X`; 
+                const rate = await getHistoricalPrice(pair, form.dateInvested);
+                
+                if (rate) {
+                    investmentInNative = investmentInNative * rate;
+                } else {
+                    // Fallback: If simple inversion exists
+                    const pairInv = `${form.nativeCurrency}${form.currency}=X`;
+                    const rateInv = await getHistoricalPrice(pairInv, form.dateInvested);
+                    if (rateInv) investmentInNative = investmentInNative / rateInv;
+                }
+            }
+
+            // 3. Calculate Quantity
+            // Note: LSE stocks often in pence (GBp). If price > 500 and native is GBP, likely pence.
+            let finalPrice = priceAtDate;
+            if (form.nativeCurrency === 'GBP' && priceAtDate > 500) {
+                finalPrice = priceAtDate / 100;
+            }
+
+            const qty = investmentInNative / finalPrice;
+            setHistoricalPrice(finalPrice);
+            setCalculatedQuantity(qty.toFixed(4));
+        }
+        setCalculating(false);
+    };
+
+    // Debounce slightly
+    const timer = setTimeout(calculateQty, 800);
+    return () => clearTimeout(timer);
+
+  }, [form.amountInvested, form.dateInvested, form.currency, form.symbol]);
+
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const payload = {
       ...form,
-      quantity: form.quantity ? parseFloat(form.quantity) : 0,
-      costBasis: form.costBasis ? parseFloat(form.costBasis) : 0,
-      currentValue: form.currentValue ? parseFloat(form.currentValue) : 0,
-      interestRate: form.interestRate ? parseFloat(form.interestRate) : 0,
+      quantity: parseFloat(calculatedQuantity) || 0, // Use the calculated quantity
+      costBasis: parseFloat(form.amountInvested), // Store total invested
+      currentValue: parseFloat(form.currentValue) || 0,
+      interestRate: parseFloat(form.interestRate) || 0,
       updatedAt: serverTimestamp()
     };
     await addDoc(collection(db, 'artifacts', APP_ID, 'users', userId, 'investments'), payload);
@@ -218,35 +307,25 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
            <button onClick={() => setMode('manual')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${mode === 'manual' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Manual (Savings)</button>
         </div>
 
+        {/* SEARCH UI */}
         {mode === 'search' && !form.symbol && (
           <div className="space-y-4">
              <form onSubmit={handleSearch} className="flex gap-2">
-               <input 
-                 value={query} 
-                 onChange={e => setQuery(e.target.value)} 
-                 placeholder="Symbol (e.g. VUSA.L, SPY)" 
-                 className="flex-1 bg-slate-50 p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500" 
-                 autoFocus
-               />
-               <button type="submit" disabled={loading} className="bg-indigo-600 text-white px-4 rounded-xl">
-                 {loading ? <Loader2 className="animate-spin"/> : <Search size={20}/>}
-               </button>
+               <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search Symbol (e.g. VUSA.L, SPY)" className="flex-1 bg-slate-50 p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500" autoFocus />
+               <button type="submit" disabled={loading} className="bg-indigo-600 text-white px-4 rounded-xl">{loading ? <Loader2 className="animate-spin"/> : <Search size={20}/>}</button>
              </form>
              <div className="max-h-60 overflow-y-auto space-y-2">
                {results.map(r => (
                  <button key={r.symbol} onClick={() => selectAsset(r)} className="w-full text-left p-3 hover:bg-slate-50 rounded-xl border border-transparent hover:border-slate-200 transition-colors">
-                    <div className="flex justify-between">
-                      <span className="font-bold text-slate-900">{r.symbol}</span>
-                      <span className="text-xs bg-slate-100 px-2 rounded text-slate-500">{r.exchange}</span>
-                    </div>
+                    <div className="flex justify-between"><span className="font-bold text-slate-900">{r.symbol}</span><span className="text-xs bg-slate-100 px-2 rounded text-slate-500">{r.exchange}</span></div>
                     <p className="text-xs text-slate-500 line-clamp-1">{r.description}</p>
                  </button>
                ))}
-               {results.length === 0 && query && !loading && <p className="text-center text-slate-400 text-sm">No results found.</p>}
              </div>
           </div>
         )}
 
+        {/* ASSET FORM */}
         {(mode === 'manual' || form.symbol) && (
            <form onSubmit={handleSubmit} className="space-y-4">
               {form.symbol && (
@@ -256,42 +335,49 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
                 </div>
               )}
 
-              {/* Currency Selector for the Asset */}
-              <div>
-                 <label className="text-xs font-bold text-slate-400 uppercase">Currency</label>
-                 <select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none font-bold font-mono">
-                    {ALL_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                 </select>
-              </div>
-
               {mode === 'manual' && (
-                 <div>
-                   <label className="text-xs font-bold text-slate-400 uppercase">Asset Name</label>
-                   <input required value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" placeholder="e.g. Barclays Savings" />
-                 </div>
+                 <div><label className="text-xs font-bold text-slate-400 uppercase">Asset Name</label><input required value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" /></div>
               )}
 
               {mode === 'search' ? (
-                 <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-bold text-slate-400 uppercase">Quantity</label>
-                      <input type="number" step="any" required value={form.quantity} onChange={e => setForm({...form, quantity: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" />
+                 <>
+                    <div className="grid grid-cols-2 gap-4">
+                       <div>
+                          <label className="text-xs font-bold text-slate-400 uppercase">Amount Invested</label>
+                          <input type="number" step="any" required value={form.amountInvested} onChange={e => setForm({...form, amountInvested: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" />
+                       </div>
+                       <div>
+                          <label className="text-xs font-bold text-slate-400 uppercase">Currency Invested</label>
+                          <select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none font-mono font-bold">
+                             {ALL_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                       </div>
                     </div>
+                    
                     <div>
-                      <label className="text-xs font-bold text-slate-400 uppercase">Avg Cost ({form.currency})</label>
-                      <input type="number" step="any" placeholder="Price per share" value={form.costBasis} onChange={e => setForm({...form, costBasis: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" />
+                       <label className="text-xs font-bold text-slate-400 uppercase flex gap-2 items-center">Date Invested <Calendar size={12}/></label>
+                       <input type="date" required value={form.dateInvested} onChange={e => setForm({...form, dateInvested: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" />
                     </div>
-                 </div>
+
+                    {/* Auto-Calculation Display */}
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                       <div className="flex justify-between items-center mb-2">
+                          <span className="text-xs font-bold text-slate-500 uppercase">Calculated Quantity</span>
+                          {calculating && <Loader2 size={14} className="animate-spin text-indigo-600"/>}
+                       </div>
+                       <div className="flex gap-3">
+                          <input value={calculatedQuantity} onChange={e => setCalculatedQuantity(e.target.value)} className="flex-1 bg-white p-2 rounded-lg border border-slate-200 text-lg font-bold text-indigo-700 outline-none" placeholder="0.00" />
+                          <div className="text-right text-xs text-slate-400 leading-tight">
+                             {historicalPrice ? <>Price on Date:<br/>{formatCurrency(historicalPrice, form.nativeCurrency)}</> : "Enter details to fetch"}
+                          </div>
+                       </div>
+                    </div>
+                 </>
               ) : (
+                 /* Manual Mode Fields */
                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-bold text-slate-400 uppercase">Value ({form.currency})</label>
-                      <input type="number" step="any" required value={form.currentValue} onChange={e => setForm({...form, currentValue: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-slate-400 uppercase">APY (%)</label>
-                      <input type="number" step="any" placeholder="Optional" value={form.interestRate} onChange={e => setForm({...form, interestRate: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" />
-                    </div>
+                    <div><label className="text-xs font-bold text-slate-400 uppercase">Current Value</label><input type="number" required value={form.currentValue} onChange={e => setForm({...form, currentValue: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" /></div>
+                    <div><label className="text-xs font-bold text-slate-400 uppercase">APY (%)</label><input type="number" value={form.interestRate} onChange={e => setForm({...form, interestRate: e.target.value})} className="w-full bg-slate-50 p-3 rounded-xl outline-none" /></div>
                  </div>
               )}
 
@@ -301,4 +387,4 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
       </div>
     </div>
   );
-        }
+                   }
