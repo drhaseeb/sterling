@@ -3,23 +3,24 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStoredConfig } from '../utils/helpers';
 
-// Initialize with Stored Config (User's Repo) or Fallback (Demo/Dev)
-const config = getStoredConfig() || {
-  // Optional: You can put a hardcoded fallback config here for local dev if you want
-  apiKey: "PLACEHOLDER", 
-  authDomain: "placeholder.firebaseapp.com", 
-  projectId: "placeholder"
-};
+let app = null;
+let auth = null;
+let db = null;
 
-// Initialize Firebase only if config exists to prevent crashes on first load
-let app, auth, db;
+const config = getStoredConfig();
 
-try {
-  app = initializeApp(config);
-  auth = getAuth(app);
-  db = getFirestore(app);
-} catch (e) {
-  console.warn("Firebase not initialized yet. Please configure in Settings.");
+if (config && config.apiKey && config.projectId) {
+  try {
+    app = initializeApp(config);
+    auth = getAuth(app);
+    db = getFirestore(app);
+  } catch (e) {
+    console.error("Firebase Initialization Error:", e);
+    // If init fails (e.g. bad config), we leave auth/db as null
+    // This triggers the "Welcome/Setup" screen in App.jsx
+  }
+} else {
+  console.log("No Firebase Config found. App is in Setup Mode.");
 }
 
-export { auth, db };
+export { app, auth, db };
