@@ -1,8 +1,11 @@
 import React from 'react';
 import { ArrowUpRight, ArrowDownLeft } from 'lucide-react';
-import { formatGBP } from '../utils/helpers';
+import { formatCurrency, STORAGE_KEY_CURRENCY } from '../utils/helpers';
 
 export default function Dashboard({ transactions, investments, budgets }) {
+  // Get Base Currency
+  const baseCurrency = localStorage.getItem(STORAGE_KEY_CURRENCY) || 'GBP';
+
   const totalIncome = transactions.filter(t => t.type === 'income').reduce((s, t) => s + (t.amount || 0), 0);
   const totalExpense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + (t.amount || 0), 0);
   const totalInvested = investments.reduce((s, i) => s + (i.currentValue || 0), 0);
@@ -25,19 +28,19 @@ export default function Dashboard({ transactions, investments, budgets }) {
         <div className="absolute top-0 right-0 w-64 h-64 bg-teal-500/20 rounded-full blur-3xl -mr-10 -mt-10"></div>
         <div className="relative z-10">
           <p className="text-slate-400 font-medium mb-1">Total Net Worth</p>
-          <h2 className="text-5xl font-bold tracking-tighter mb-8">{formatGBP(netWorth)}</h2>
+          <h2 className="text-5xl font-bold tracking-tighter mb-8">{formatCurrency(netWorth, baseCurrency)}</h2>
           <div className="grid grid-cols-3 gap-4 border-t border-white/10 pt-6">
             <div>
               <p className="text-xs text-slate-400 uppercase font-bold mb-1">Assets</p>
-              <p className="text-xl font-semibold text-teal-400">{formatGBP(totalInvested)}</p>
+              <p className="text-xl font-semibold text-teal-400">{formatCurrency(totalInvested, baseCurrency)}</p>
             </div>
             <div>
               <p className="text-xs text-slate-400 uppercase font-bold mb-1">Cash In</p>
-              <p className="text-xl font-semibold text-white">{formatGBP(totalIncome)}</p>
+              <p className="text-xl font-semibold text-white">{formatCurrency(totalIncome, baseCurrency)}</p>
             </div>
             <div>
               <p className="text-xs text-slate-400 uppercase font-bold mb-1">Cash Out</p>
-              <p className="text-xl font-semibold text-rose-400">{formatGBP(totalExpense)}</p>
+              <p className="text-xl font-semibold text-rose-400">{formatCurrency(totalExpense, baseCurrency)}</p>
             </div>
           </div>
         </div>
@@ -52,8 +55,8 @@ export default function Dashboard({ transactions, investments, budgets }) {
             </span>
           </div>
           <div className="flex items-end gap-2 mb-2">
-            <span className="text-2xl font-bold text-slate-900">{formatGBP(monthlySpend)}</span>
-            <span className="text-sm text-slate-400 mb-1">/ {formatGBP(totalBudgetLimit)}</span>
+            <span className="text-2xl font-bold text-slate-900">{formatCurrency(monthlySpend, baseCurrency)}</span>
+            <span className="text-sm text-slate-400 mb-1">/ {formatCurrency(totalBudgetLimit, baseCurrency)}</span>
           </div>
           <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
             <div 
@@ -78,7 +81,7 @@ export default function Dashboard({ transactions, investments, budgets }) {
                   </div>
                 </div>
                 <span className={`font-bold text-sm ${tx.type === 'income' ? 'text-teal-600' : 'text-slate-900'}`}>
-                  {tx.type === 'income' ? '+' : '-'}{formatGBP(tx.amount)}
+                  {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, baseCurrency)}
                 </span>
               </div>
             ))}
