@@ -2,16 +2,18 @@ import { STORAGE_KEY_GEMINI } from '../utils/helpers';
 
 export const callGeminiVision = async (base64Image) => {
   const apiKey = localStorage.getItem(STORAGE_KEY_GEMINI);
-  if (!apiKey) throw new Error("API Key Missing. Please add it in Settings.");
+  
+  if (!apiKey) {
+    throw new Error("Gemini API Key is missing. Go to Settings to add it.");
+  }
 
-  // Use the latest stable flash model
   const GEMINI_MODEL = "gemini-1.5-flash"; 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   
   const payload = {
     contents: [{
       parts: [
-        { text: "Analyze this financial document (receipt/paycheck). Extract data into this strict JSON structure: { \"merchant\": string, \"amount\": number, \"date\": string (YYYY-MM-DD), \"category\": string (suggest one: Groceries, Transport, Utilities, Dining, Income, Bills, Health, Shopping), \"taxDeductible\": boolean }. Do not wrap the response in markdown or code blocks. Just return raw JSON." },
+        { text: "Analyze this receipt. Return ONLY a valid JSON object with these fields: { \"merchant\": string, \"amount\": number, \"date\": string (YYYY-MM-DD), \"category\": string, \"taxDeductible\": boolean }. Do not use markdown formatting." },
         { inlineData: { mimeType: "image/jpeg", data: base64Image } }
       ]
     }],
@@ -26,21 +28,28 @@ export const callGeminiVision = async (base64Image) => {
     });
 
     if (!response.ok) {
-      const errData = await response.json();
-      throw new Error(errData.error?.message || response.statusText);
+      const errorText = await response.text();
+      console.error("Gemini API Error:", errorText);
+      throw new Error(`AI Error (${response.status}): Check your API Key.`);
     }
 
     const data = await response.json();
-    const candidate = data.candidates?.[0]?.content?.parts?.[0]?.text;
     
-    if (!candidate) throw new Error("No data returned from AI.");
+    // Robust parsing
+    if (!data.candidates || !data.candidates[0].content) {
+      throw new Error("AI could not identify the image.");
+    }
 
-    // CRITICAL FIX: Strip Markdown code fences if AI includes them
-    const cleanJson = candidate.replace(/```json/g, '').replace(/```/g, '').trim();
+    const text = data.candidates[0].content.parts[0].text;
+    
+    // Sanitize markdown if AI ignores instructions
+    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
     
     return JSON.parse(cleanJson);
+
   } catch (error) {
-    console.error("AI Scan Error:", error);
+    console.error("Scanner Exception:", error);
+    // Pass the error message up to the UI
     throw error;
   }
 };
