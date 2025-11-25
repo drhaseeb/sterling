@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, PiggyBank, Search, Loader2, ArrowUpRight, ArrowDownLeft, RefreshCcw, X, Calendar, Lock, AlertCircle } from 'lucide-react';
+import { TrendingUp, PiggyBank, Search, Loader2, ArrowUpRight, ArrowDownLeft, RefreshCcw, X, Calendar, Lock } from 'lucide-react';
 import { formatCurrency, STORAGE_KEY_CURRENCY, ALL_CURRENCIES } from '../utils/helpers';
 import { db } from '../services/firebase';
 import { addDoc, collection, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
@@ -24,46 +24,32 @@ export default function Wealth({ investments, userId }) {
     if (rates) setForexRates(rates);
     const newPrices = {};
     const symbols = investments.filter(i => i.symbol).map(i => i.symbol);
-    
-    // Sequential fetch to be gentle on proxy
     for (const sym of symbols) {
       try {
         const quote = await getQuote(sym);
-        if (quote) newPrices[sym] = quote;
+        if (quote) {
+           if (quote.currency === 'GBp') { quote.price = quote.price / 100; quote.currency = 'GBP'; }
+           newPrices[sym] = quote;
+        }
       } catch (e) { console.error(e); }
     }
     setLivePrices(prev => ({ ...prev, ...newPrices }));
     setRefreshing(false);
   };
 
-  const deleteInv = async (id) => { 
-    if(confirm("Remove this asset? Data will be lost.")) await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'investments', id)); 
-  }
+  const deleteInv = async (id) => { if(confirm("Remove asset?")) await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'investments', id)); }
 
   const totalWealth = investments.reduce((sum, inv) => {
     let assetValue = inv.currentValue || 0;
-    
-    // 1. Calculate Value in NATIVE currency
-    if (inv.symbol && livePrices[inv.symbol]) {
-      assetValue = inv.quantity * livePrices[inv.symbol].price;
-    }
-
-    // 2. Deduct Fees
+    if (inv.symbol && livePrices[inv.symbol]) assetValue = inv.quantity * livePrices[inv.symbol].price;
     if (inv.annualFee) assetValue = assetValue * (1 - (inv.annualFee / 100));
-
-    // 3. Convert to BASE currency
     const nativeCurrency = (inv.symbol && livePrices[inv.symbol]) ? livePrices[inv.symbol].currency : (inv.currency || baseCurrency);
-    if (nativeCurrency !== baseCurrency && forexRates[nativeCurrency]) {
-        // Convert Native -> Base (e.g. USD -> GBP: USD / Rate)
-        assetValue = assetValue / forexRates[nativeCurrency];
-    }
-
+    if (nativeCurrency !== baseCurrency && forexRates[nativeCurrency]) assetValue = assetValue / forexRates[nativeCurrency];
     return sum + assetValue;
   }, 0);
 
   return (
     <div className="space-y-4 animate-in fade-in max-w-4xl mx-auto">
-       {/* HEADER */}
        <div className="bg-indigo-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
          <div className="relative z-10">
             <div className="flex justify-between items-start">
@@ -83,30 +69,20 @@ export default function Wealth({ investments, userId }) {
 
        {showAdd && <AddAssetModal userId={userId} onClose={() => setShowAdd(false)} baseCurrency={baseCurrency} />}
 
-       {/* LIST */}
        <div className="grid md:grid-cols-2 gap-3">
           {investments.map(inv => {
              const live = livePrices[inv.symbol];
              const nativeCurrency = live?.currency || inv.currency || baseCurrency;
-             
-             // Current Value (Native)
              let nativeValue = live ? (inv.quantity * live.price) : inv.currentValue;
              if (inv.annualFee) nativeValue = nativeValue * (1 - (inv.annualFee / 100));
 
-             // Current Value (Base) for ROI calc
              let baseValue = nativeValue;
-             if (nativeCurrency !== baseCurrency && forexRates[nativeCurrency]) {
-                 baseValue = nativeValue / forexRates[nativeCurrency];
-             }
+             if (nativeCurrency !== baseCurrency && forexRates[nativeCurrency]) baseValue = nativeValue / forexRates[nativeCurrency];
 
-             // Invested Value (Base)
-             // inv.costBasis is stored in the currency the user paid
+             const investedAmount = inv.costBasis || 0;
              const investedCurrency = inv.currency || baseCurrency; 
-             let baseInvested = inv.costBasis || 0;
-             if (investedCurrency !== baseCurrency && forexRates[investedCurrency]) {
-                 baseInvested = (inv.costBasis || 0) / forexRates[investedCurrency];
-             }
-
+             let baseInvested = investedAmount;
+             if (investedCurrency !== baseCurrency && forexRates[investedCurrency]) baseInvested = investedAmount / forexRates[investedCurrency];
              const returnAmt = baseValue - baseInvested;
              const returnPct = baseInvested > 0 ? (returnAmt / baseInvested) * 100 : 0;
              const isLocked = inv.lockDate && new Date(inv.lockDate) > new Date();
@@ -126,6 +102,7 @@ export default function Wealth({ investments, userId }) {
                           <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-500">
                              {inv.category && <span className="bg-slate-100 px-1.5 rounded text-slate-600">{inv.category}</span>}
                              <span className="font-mono bg-slate-50 px-1 rounded">{inv.symbol || inv.currency}</span>
+                             {inv.interestRate > 0 && <span className="bg-green-50 text-green-700 px-1.5 rounded font-bold">+{inv.interestRate}%</span>}
                           </div>
                        </div>
                     </div>
@@ -139,21 +116,19 @@ export default function Wealth({ investments, userId }) {
                         </p>
                         <div className="flex flex-col">
                             <span className="font-bold text-base text-slate-900">{formatCurrency(nativeValue, nativeCurrency)}</span>
-                            {/* Live price indicator */}
-                            {live && <span className="text-[9px] text-indigo-400">Live: {formatCurrency(live.price, nativeCurrency)}</span>}
+                            {nativeCurrency !== baseCurrency && <span className="text-[10px] text-slate-400">≈ {formatCurrency(baseValue, baseCurrency)}</span>}
                         </div>
                      </div>
-                     
                      {inv.costBasis > 0 && (
                         <div className="text-right">
                             <p className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">Return</p>
                             <div className={`font-bold text-xs flex items-center justify-end gap-1 ${returnAmt >= 0 ? 'text-green-600' : 'text-rose-600'}`}>
-                                {returnAmt >= 0 ? <ArrowUpRight size={12}/> : <ArrowDownLeft size={12}/>}
-                                {returnPct.toFixed(1)}%
+                                {returnAmt >= 0 ? <ArrowUpRight size={12}/> : <ArrowDownLeft size={12}/>}{returnPct.toFixed(1)}%
                             </div>
                         </div>
                      )}
                   </div>
+                  {isLocked && <div className="text-[9px] text-rose-500 bg-rose-50 p-1.5 rounded flex gap-1 items-center"><Lock size={8}/> Locked until {new Date(inv.lockDate).toLocaleDateString()}</div>}
                </div>
              );
           })}
@@ -167,17 +142,11 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  
   const [calculating, setCalculating] = useState(false);
-  const [historicalPrice, setHistoricalPrice] = useState(null);
-  
-  // Form
+  const [calculatedQuantity, setCalculatedQuantity] = useState('');
+
   const [form, setForm] = useState({ 
-      name: '', symbol: '', type: 'Stock', 
-      amountInvested: '', dateInvested: new Date().toISOString().split('T')[0], 
-      quantity: '', // Now explicitly tracked
-      currentValue: '', interestRate: '', currency: baseCurrency, nativeCurrency: '',
-      category: 'General', annualFee: '', lockDate: ''
+      name: '', symbol: '', type: 'Stock', amountInvested: '', dateInvested: new Date().toISOString().split('T')[0], currentValue: '', interestRate: '', currency: baseCurrency, nativeCurrency: '', category: 'General', annualFee: '', lockDate: ''
   });
 
   const handleSearch = async (e) => {
@@ -194,53 +163,37 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
     setResults([]); setQuery('');
   };
 
-  // Auto-Calculate Hook
   useEffect(() => {
     const calculateQty = async () => {
         if (!form.symbol || !form.amountInvested || !form.dateInvested) return;
         setCalculating(true);
-        
-        // 1. Fetch Historical Price (Native)
         const priceAtDate = await getHistoricalPrice(form.symbol, form.dateInvested);
-        setHistoricalPrice(priceAtDate);
-
         if (priceAtDate) {
             let investmentInNative = parseFloat(form.amountInvested);
-            
-            // 2. Apply Historical Forex if currencies differ
             if (form.currency !== form.nativeCurrency) {
-                // Try to find rate on that specific date
                 const pair = `${form.currency}${form.nativeCurrency}=X`; 
                 const rate = await getHistoricalPrice(pair, form.dateInvested);
-                
-                if (rate) {
-                    investmentInNative = investmentInNative * rate;
-                } else {
-                    // Simple fallback if historical forex fails: use 1:1 (User can edit later)
-                    console.warn("Historical forex failed, using 1:1");
+                if (rate) investmentInNative = investmentInNative * rate;
+                else {
+                    const pairInv = `${form.nativeCurrency}${form.currency}=X`;
+                    const rateInv = await getHistoricalPrice(pairInv, form.dateInvested);
+                    if (rateInv) investmentInNative = investmentInNative / rateInv;
                 }
             }
-
-            // 3. Calculate Qty
-            const qty = investmentInNative / priceAtDate;
-            setForm(prev => ({ ...prev, quantity: qty.toFixed(4) }));
+            let finalPrice = priceAtDate;
+            if (form.nativeCurrency === 'GBP' && priceAtDate > 500) finalPrice = priceAtDate / 100;
+            setCalculatedQuantity((investmentInNative / finalPrice).toFixed(4));
         }
         setCalculating(false);
     };
-    const timer = setTimeout(calculateQty, 1000); // Debounce
+    const timer = setTimeout(calculateQty, 800);
     return () => clearTimeout(timer);
-  }, [form.amountInvested, form.dateInvested, form.currency, form.symbol, form.nativeCurrency]);
+  }, [form.amountInvested, form.dateInvested, form.currency, form.symbol]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const payload = {
-      ...form,
-      quantity: parseFloat(form.quantity) || 0,
-      costBasis: parseFloat(form.amountInvested), 
-      currentValue: parseFloat(form.currentValue) || 0,
-      interestRate: parseFloat(form.interestRate) || 0,
-      annualFee: parseFloat(form.annualFee) || 0,
-      updatedAt: serverTimestamp()
+      ...form, quantity: parseFloat(calculatedQuantity) || 0, costBasis: parseFloat(form.amountInvested), currentValue: parseFloat(form.currentValue) || 0, interestRate: parseFloat(form.interestRate) || 0, annualFee: parseFloat(form.annualFee) || 0, updatedAt: serverTimestamp()
     };
     await addDoc(collection(db, 'artifacts', APP_ID, 'users', userId, 'investments'), payload);
     onClose();
@@ -255,7 +208,7 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
         </div>
 
         <div className="flex bg-slate-100 p-1 rounded-lg mb-4">
-           <button onClick={() => setMode('search')} className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${mode === 'search' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Search (Yahoo)</button>
+           <button onClick={() => setMode('search')} className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${mode === 'search' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Search</button>
            <button onClick={() => setMode('manual')} className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${mode === 'manual' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Manual</button>
         </div>
 
@@ -285,7 +238,6 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
                 </div>
               )}
 
-              {/* Core Info */}
               <div className="grid grid-cols-2 gap-2">
                  <div><label className="text-[10px] font-bold text-slate-400 uppercase">Category</label><select value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-xs">{ASSET_CATS.map(c => <option key={c}>{c}</option>)}</select></div>
                  <div><label className="text-[10px] font-bold text-slate-400 uppercase">Fee (%)</label><input type="number" step="any" placeholder="0.0%" value={form.annualFee} onChange={e => setForm({...form, annualFee: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-xs" /></div>
@@ -298,29 +250,26 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
               {mode === 'search' ? (
                  <>
                     <div className="grid grid-cols-2 gap-2">
-                       <div><label className="text-[10px] font-bold text-slate-400 uppercase">Amount Invested</label><input type="number" step="any" required value={form.amountInvested} onChange={e => setForm({...form, amountInvested: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-xs" /></div>
-                       <div><label className="text-[10px] font-bold text-slate-400 uppercase">Currency Paid</label><select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-xs font-mono font-bold">{ALL_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+                       <div><label className="text-[10px] font-bold text-slate-400 uppercase">Invested</label><input type="number" step="any" required value={form.amountInvested} onChange={e => setForm({...form, amountInvested: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-xs" /></div>
+                       <div><label className="text-[10px] font-bold text-slate-400 uppercase">Currency</label><select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-xs font-mono font-bold">{ALL_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
                     </div>
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase flex gap-1 items-center">Date <Calendar size={10}/></label><input type="date" required value={form.dateInvested} onChange={e => setForm({...form, dateInvested: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-xs" /></div>
-                    
-                    {/* AUTO-CALCULATION AREA */}
-                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-2">
-                        <div className="flex justify-between items-center">
-                           <label className="text-[10px] font-bold text-indigo-500 uppercase">Quantity (Editable)</label>
-                           {calculating && <Loader2 size={10} className="animate-spin text-indigo-500"/>}
-                        </div>
-                        <input type="number" step="any" value={form.quantity} onChange={e => setForm({...form, quantity: e.target.value})} className="w-full bg-white p-2 rounded-lg border border-slate-200 text-sm font-bold text-indigo-700 outline-none" placeholder="0.00" />
-                        <p className="text-[10px] text-slate-400 text-right">
-                           {historicalPrice ? `Found Price: ${formatCurrency(historicalPrice, form.nativeCurrency)}` : "Auto-calculating..."}
-                        </p>
+                    {/* Calculated Qty Box */}
+                    <div className="bg-slate-50 p-2 rounded-lg border border-slate-200">
+                        <label className="text-[9px] font-bold text-indigo-500 uppercase">Auto-Calculated Shares {calculating && <Loader2 size={10} className="inline animate-spin"/>}</label>
+                        <input type="number" step="any" value={calculatedQuantity} onChange={e => setCalculatedQuantity(e.target.value)} className="w-full bg-transparent text-sm font-bold text-indigo-700 outline-none" placeholder="0.00" />
                     </div>
                  </>
               ) : (
-                 /* Manual Mode */
-                 <div className="grid grid-cols-2 gap-2">
-                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">Value</label><input type="number" required value={form.currentValue} onChange={e => setForm({...form, currentValue: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-xs" /></div>
-                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">Currency</label><select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-xs font-mono font-bold">{ALL_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-                 </div>
+                 /* Manual Mode - UPDATED WITH INTEREST RATE */
+                 <>
+                    <div className="grid grid-cols-2 gap-2">
+                       <div><label className="text-[10px] font-bold text-slate-400 uppercase">Value</label><input type="number" required value={form.currentValue} onChange={e => setForm({...form, currentValue: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-xs" /></div>
+                       <div><label className="text-[10px] font-bold text-slate-400 uppercase">Currency</label><select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-xs font-mono font-bold">{ALL_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+                    </div>
+                    {/* The APY Field is back! */}
+                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">Interest Rate (%)</label><input type="number" step="any" placeholder="0.0%" value={form.interestRate} onChange={e => setForm({...form, interestRate: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-xs" /></div>
+                 </>
               )}
 
               <div><label className="text-[10px] font-bold text-slate-400 uppercase flex gap-1 items-center">Lock Date <Lock size={10}/></label><input type="date" value={form.lockDate} onChange={e => setForm({...form, lockDate: e.target.value})} className="w-full bg-slate-50 p-2 rounded-lg outline-none text-xs text-slate-600" /></div>
@@ -330,4 +279,4 @@ function AddAssetModal({ userId, onClose, baseCurrency }) {
       </div>
     </div>
   );
-                    }
+    }
