@@ -3,7 +3,17 @@ const PROXY_URL = 'https://api.allorigins.win/raw?url=';
 const YAHOO_SEARCH_URL = 'https://query1.finance.yahoo.com/v1/finance/search';
 const YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart';
 
-// 1. GET EXCHANGE RATES (Live)
+// HELPER: Normalize Pence to Pounds
+// Yahoo often returns LSE stocks in GBp (pence). If currency is GBP/GBp and price > 200, assume pence.
+const normalizeYahooPrice = (price, currency) => {
+  if (!price) return 0;
+  if ((currency === 'GBP' || currency === 'GBp') && price > 200) {
+    return price / 100;
+  }
+  return price;
+};
+
+// 1. GET EXCHANGE RATES
 export const getExchangeRates = async (baseCurrency = 'GBP') => {
   try {
     const res = await fetch(`https://api.exchangerate-api.com/v4/latest/${baseCurrency}`);
@@ -53,11 +63,16 @@ export const getQuote = async (symbol) => {
     
     if (!result || !result.meta) return null;
 
+    const rawPrice = result.meta.regularMarketPrice;
+    const currency = result.meta.currency;
+    const price = normalizeYahooPrice(rawPrice, currency);
+    const prevClose = normalizeYahooPrice(result.meta.chartPreviousClose, currency);
+
     return {
-      price: result.meta.regularMarketPrice,
-      currency: result.meta.currency,
-      change: result.meta.regularMarketPrice - result.meta.chartPreviousClose,
-      percent: ((result.meta.regularMarketPrice - result.meta.chartPreviousClose) / result.meta.chartPreviousClose) * 100
+      price,
+      currency: currency === 'GBp' ? 'GBP' : currency, // Normalize code
+      change: price - prevClose,
+      percent: ((price - prevClose) / prevClose) * 100
     };
   } catch (e) {
     console.error(`Quote Error for ${symbol}`, e);
@@ -65,12 +80,11 @@ export const getQuote = async (symbol) => {
   }
 };
 
-// 4. GET HISTORICAL PRICE (New)
+// 4. GET HISTORICAL PRICE
 export const getHistoricalPrice = async (symbol, dateString) => {
   if (!symbol || !dateString) return null;
 
   try {
-    // Create timestamps for the specific date (Start of day to End of day)
     const date = new Date(dateString);
     const period1 = Math.floor(date.getTime() / 1000);
     const period2 = period1 + 86400; // +1 Day
@@ -82,12 +96,12 @@ export const getHistoricalPrice = async (symbol, dateString) => {
     const data = await res.json();
     const result = data.chart.result[0];
 
-    // Return the Close price on that day
     if (result && result.indicators && result.indicators.quote[0].close) {
-        // Find the first valid close price
         const closes = result.indicators.quote[0].close;
         const validClose = closes.find(c => c != null);
-        return validClose || null;
+        const currency = result.meta.currency;
+        
+        return normalizeYahooPrice(validClose, currency);
     }
     return null;
   } catch (e) {
